@@ -69,19 +69,29 @@ def _clean_env(summary_file: Path) -> dict[str, str]:
     return env
 
 
-def _run_summary(tmp_path: Path, scenarios: list[str], *, shadowing_package: bool = False) -> tuple[str, str]:
+def _run_summary(
+    tmp_path: Path,
+    scenarios: list[str],
+    *,
+    shadowing_package: bool = False,
+    truncated: bool = False,
+) -> tuple[str, str]:
     """Run the shipped step script against a synthetic report.
 
     When ``shadowing_package`` is set, a regular ``scripts/`` package is placed
     in the working directory, standing in for a consumer repository that has
     one of its own; the step must still load the checkout's module.
 
+    When ``truncated`` is set, the closing ``]`` is dropped, as behave leaves
+    it when a lane crashes before its formatter's ``close()``.
+
     Returns ``(stdout, job-summary markdown)``.
     """
     results_dir = tmp_path / "results"
     results_dir.mkdir()
     report = [{"name": "synthetic feature", "elements": [_scenario(s) for s in scenarios]}]
-    (results_dir / "results.json").write_text(json.dumps(report), encoding="utf-8")
+    text = json.dumps(report)
+    (results_dir / "results.json").write_text(text[:-1] if truncated else text, encoding="utf-8")
 
     # Stand in for the action's testsuite checkout (`_testsuite`), which the
     # step imports scripts/e2e_summary.py from.
@@ -184,6 +194,22 @@ def test_all_passed_run_is_still_reported_as_passed(tmp_path):
 
     assert "E2E PASSED: 2 passed / 0 failed / 1 skipped" in stdout
     assert summary.startswith("## ✅ E2E Results")
+
+
+def test_truncated_all_passed_run_is_reported_as_incomplete(tmp_path):
+    stdout, summary = _run_summary(tmp_path, ["passed", "passed"], truncated=True)
+
+    assert "PASSED" not in stdout
+    assert "E2E INCOMPLETE" in stdout
+    assert summary.startswith("## ⚠️ E2E Results")
+    assert "INCOMPLETE (results truncated)" in summary
+
+
+def test_truncated_run_with_a_failure_stays_failed(tmp_path):
+    stdout, summary = _run_summary(tmp_path, ["passed", "failed"], truncated=True)
+
+    assert "E2E FAILED" in stdout
+    assert summary.startswith("## ❌ E2E Results")
 
 
 def test_failed_run_is_reported_as_failed(tmp_path):

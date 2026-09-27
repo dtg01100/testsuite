@@ -112,11 +112,20 @@ def test_failed_run_renders_failure_icon():
     assert summary_icon(counts) == "❌"
 
 
-def test_skipped_only_and_empty_runs_stay_green():
+def test_skipped_only_run_stays_green():
     counts = count_scenarios(_report("skipped"))
 
     assert summary_icon(counts) == "✅"
-    assert summary_icon(count_scenarios([])) == "✅"
+
+
+def test_empty_run_is_not_success():
+    # A run that counted no scenarios proved nothing; before load_report an
+    # empty or '['-only results.json raised, now it parses to [] and must not
+    # render green.
+    counts = count_scenarios([])
+
+    assert not is_success(counts)
+    assert summary_icon(counts) == "⚠️"
 
 
 def test_scenario_statuses_excludes_backgrounds():
@@ -156,15 +165,19 @@ def _feature(name="feature", status="passed"):
 def test_load_report_parses_valid_json_unchanged():
     report = [_feature("a"), _feature("b")]
 
-    assert load_report(json.dumps(report)) == report
+    assert load_report(json.dumps(report)) == (report, True)
 
 
-def test_load_report_empty_input_returns_empty_list():
-    assert load_report("") == []
+def test_load_report_empty_input_is_incomplete():
+    assert load_report("") == ([], False)
 
 
-def test_load_report_open_bracket_only_returns_empty_list():
-    assert load_report("[") == []
+def test_load_report_open_bracket_only_is_incomplete():
+    assert load_report("[") == ([], False)
+
+
+def test_load_report_non_array_document_is_incomplete():
+    assert load_report('{"name": "x"}') == ([], False)
 
 
 def test_load_report_salvages_complete_features_without_footer():
@@ -174,21 +187,28 @@ def test_load_report_salvages_complete_features_without_footer():
     report = [_feature("a"), _feature("b"), _feature("c")]
     crashed = json.dumps(report)[:-1]  # drop the trailing ']'
 
-    assert load_report(crashed) == report
-    assert count_scenarios(load_report(crashed))["passed"] == 3
+    recovered, complete = load_report(crashed)
+
+    assert recovered == report
+    assert not complete
+    assert count_scenarios(recovered)["passed"] == 3
 
 
 def test_load_report_drops_truncated_final_feature():
     report = [_feature("a"), _feature("b"), _feature("c")]
     truncated = json.dumps(report)[: len(json.dumps(report)) - 5]  # chop part of last
 
-    recovered = load_report(truncated)
+    recovered, complete = load_report(truncated)
 
     assert [f["name"] for f in recovered] == ["a", "b"]
+    assert not complete
 
 
 def test_load_report_trailing_comma_without_object_returns_features():
     report = [_feature("a"), _feature("b")]
     crashed = json.dumps(report) + ","  # complete objects, then a dangling comma
 
-    assert [f["name"] for f in load_report(crashed)] == ["a", "b"]
+    recovered, complete = load_report(crashed)
+
+    assert [f["name"] for f in recovered] == ["a", "b"]
+    assert not complete

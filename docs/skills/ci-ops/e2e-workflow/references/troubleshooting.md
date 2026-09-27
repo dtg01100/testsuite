@@ -10,6 +10,14 @@ metadata:
 
 ## Debugging failures
 
+### A script missing from the sparse checkout fails silently
+
+**Root cause:** the testsuite checkout in `e2e.yml` is a non-cone sparse checkout, so only the paths listed in its `sparse-checkout` block exist on the runner. A step that invokes a script not on that list runs against a missing file.
+
+**Evidence:** the step fails with a confusing "no such file" error, or, when the step is a guard allowed to soft-fail, the guard never runs and the problem it existed to catch ships undetected.
+
+**Fix:** add the exact script path to that job's `sparse-checkout` list in the same change that makes a step call it (see the rule in [SKILL.md](../SKILL.md)).
+
 ### podman load exits 125 (all GUI suites fail at "Load runner container into VM")
 
 **Root cause:** `bluefin-test` lacks `/etc/subuid`/`/etc/subgid` entries. The Fedora 44 runner base image has a layer with `gid=12` (mail group) for `/var/spool/mail`. Rootless podman can't map this gid without subgid entries.

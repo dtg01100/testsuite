@@ -24,7 +24,7 @@ COUNTED_STATUSES = (*SCENARIO_STATUSES, OTHER_STATUS)
 SUCCESS_STATUSES = ("passed", "skipped")
 
 
-def load_report(text: str) -> list[dict[str, Any]]:
+def load_report(text: str) -> tuple[list[dict[str, Any]], bool]:
     """Parse a behave ``results.json`` string, tolerating a crashed file.
 
     behave's JSON formatter opens the outfile with ``"w"`` and writes the
@@ -36,12 +36,20 @@ def load_report(text: str) -> list[dict[str, Any]]:
     reason. This loader returns the parsed array in the normal case, and on a
     decode error salvages every complete top-level feature object so a crashed
     run still yields a partial report instead of nothing.
+
+    Returns ``(report, complete)``. ``complete`` is ``False`` whenever the
+    document was not a whole JSON array (salvaged, empty, or some other JSON
+    value), so callers must render the run as INCOMPLETE rather than trust the
+    counts of a partial report: the feature that was running when the lane
+    died is exactly the one the salvage drops.
     """
     try:
         report = json.loads(text)
     except json.JSONDecodeError:
-        report = _salvage_partial(text)
-    return report if isinstance(report, list) else []
+        return _salvage_partial(text), False
+    if not isinstance(report, list):
+        return [], False
+    return report, True
 
 
 def _salvage_partial(text: str) -> list[dict[str, Any]]:
@@ -72,6 +80,7 @@ def _salvage_partial(text: str) -> list[dict[str, Any]]:
         report.append(obj)
         pos = end
     return report
+
 
 def count_scenarios(report: list[dict[str, Any]]) -> dict[str, int]:
     """Count scenario statuses, excluding backgrounds.
@@ -116,9 +125,10 @@ def is_success(counts: dict[str, int]) -> bool:
     """Return True only when every counted scenario passed or was skipped.
 
     ``failed == 0`` is not enough: an undefined-only, untested-only or
-    errored run must never render a green headline.
+    errored run must never render a green headline, and neither may a run
+    that counted no scenarios at all, since it proved nothing.
     """
-    return all(
+    return sum(counts.values()) > 0 and all(
         count == 0
         for status, count in counts.items()
         if status not in SUCCESS_STATUSES
@@ -136,7 +146,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("results_json", type=Path)
     args = parser.parse_args(argv)
-    report = load_report(args.results_json.read_text(encoding="utf-8"))
+    report, _complete = load_report(args.results_json.read_text(encoding="utf-8"))
     print(json.dumps(count_scenarios(report)))
     return 0
 

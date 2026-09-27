@@ -39,12 +39,17 @@ results n="10":
                 print("  ? %s: (no results.json)" % suite)
                 continue
             try:
-                counts = count_scenarios(load_report(report_path.read_text(encoding="utf-8")))
+                report, complete = load_report(report_path.read_text(encoding="utf-8"))
+                counts = count_scenarios(report)
             except Exception as error:
                 print("  ? %s: (error reading results.json: %s)" % (suite, error))
                 continue
             total = sum(counts.values())
-            print("  %s %s: %d/%d passed" % (summary_icon(counts), suite, counts["passed"], total))
+            icon = summary_icon(counts)
+            if not complete and icon == "✅":
+                icon = "⚠️"
+            note = "" if complete else " (INCOMPLETE: results truncated)"
+            print("  %s %s: %d/%d passed%s" % (icon, suite, counts["passed"], total, note))
     PYEOF
 
 # Show per-scenario timing table from the most recent run (or a specific run-uid)
@@ -188,8 +193,8 @@ compare-results run_uid="":
     from scripts.e2e_summary import load_report, scenario_statuses
 
     run_uid = os.environ["RUN_UID"]
-    smoke = scenario_statuses(load_report(Path(os.environ["SMOKE_JSON"]).read_text(encoding="utf-8")))
-    vanilla = scenario_statuses(load_report(Path(os.environ["VANILLA_JSON"]).read_text(encoding="utf-8")))
+    smoke = scenario_statuses(load_report(Path(os.environ["SMOKE_JSON"]).read_text(encoding="utf-8"))[0])
+    vanilla = scenario_statuses(load_report(Path(os.environ["VANILLA_JSON"]).read_text(encoding="utf-8"))[0])
     overlap = sorted(set(smoke) & set(vanilla))
 
     print(f"=== Smoke vs Vanilla-GNOME comparison: {run_uid} ===")

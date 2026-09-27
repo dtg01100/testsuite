@@ -137,9 +137,9 @@ semantics").
 `load_report()` is the crash-tolerant entry point for every read of `results.json`:
 behave writes the closing `]` only in `close()`, so a lane that crashes mid-run
 leaves a truncated document that makes a bare `json.loads()` raise and fail the
-job for the wrong reason. `load_report()` salvages the complete feature objects and
-returns `[]` on an empty or non-array document, so the summarise step degrades to a
-zero-scenario report instead of crashing.
+job for the wrong reason. `load_report()` returns `(report, complete)`: it salvages
+the complete feature objects, returns `[]` on an empty or non-array document, and
+sets `complete=False` in both cases so the recipe renders ⚠️ INCOMPLETE instead of ✅.
 
 All four recipes resolve the same root with
 `BASE="${RESULTS_BASE:-/var/tmp/bluefin-results}"`. A recipe that hardcodes the

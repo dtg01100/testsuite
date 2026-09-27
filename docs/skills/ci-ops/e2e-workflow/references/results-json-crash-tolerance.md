@@ -24,25 +24,28 @@ far but is missing the footer. The possible shapes:
 
 An unguarded `json.loads()` on any of these raises `JSONDecodeError`, which fails
 the summarise step for the wrong reason — a crash / "No results generated" — instead
-of reporting the real pass/fail state. This is exactly the failure in
-projectbluefin/testsuite#604, where a GUI smoke lane mid-run crash produced a
-truncated `results.json` and the summarize step's `json.loads` raised.
+of reporting the real pass/fail state. (The "No results generated" in
+projectbluefin/testsuite#604 comes from a separate `json.load` in
+`projectbluefin/lab`'s `run-container-tests.yaml`, which this loader does not
+cover.)
 
 ## `load_report()` salvages the complete objects
 
 `load_report()` in `scripts/e2e_summary.py` is the crash-tolerant entry point:
 
 ```python
-def load_report(text: str) -> list[dict[str, Any]]:
+def load_report(text: str) -> tuple[list[dict[str, Any]], bool]:
     try:
         report = json.loads(text)
     except json.JSONDecodeError:
-        report = _salvage_partial(text)
-    return report if isinstance(report, list) else []
+        return _salvage_partial(text), False
+    if not isinstance(report, list):
+        return [], False
+    return report, True
 ```
 
-On a clean document it returns exactly what `json.loads` would — the normal case is
-byte-identical to the old `json.loads(results_file.read_text())`. On a
+It returns `(report, complete)`. On a clean document `report` is exactly what
+`json.loads` would return and `complete` is `True`. On a
 `JSONDecodeError` it delegates to `_salvage_partial()`, which walks the array with
 `JSONDecoder.raw_decode()` and collects every complete feature object while dropping
 any truncated tail:
@@ -71,17 +74,26 @@ def _salvage_partial(text: str) -> list[dict[str, Any]]:
     return report
 ```
 
-`load_report()` returns `[]` (never raises) on an empty, whitespace-only, or
-non-array document, so the summarise step degrades to a zero-scenario report rather
-than crashing. `count_scenarios([])` and `scenario_statuses([])` both return empty
-results, so a crashed lane reports "0 scenarios" instead of "No results generated".
+`load_report()` never raises: an empty, whitespace-only, or non-array document
+yields `([], False)`, and a salvaged document yields the recovered features with
+`complete=False`.
+
+## A salvaged report is never green
+
+Salvage drops the feature that was running when the lane died, so the surviving
+features can all have passed while the run did not. Every reader therefore treats
+`complete=False` as INCOMPLETE: a ✅ headline becomes ⚠️ with an
+"INCOMPLETE (results truncated)" note, and a ❌ stays ❌. Separately,
+`is_success()` is `False` when no scenario was counted at all, so an empty report
+renders ⚠️ rather than ✅.
 
 ## Every reader uses `load_report()`
 
-- `.github/actions/gnome-e2e/action.yml` — the `Summarise results` step replaces
-  `json.loads(results_file.read_text())` with `load_report(...)`.
-- `Justfile` — the `recent-results` recipe (`count_scenarios(load_report(...))`) and
-  the `compare-results` recipe (`scenario_statuses(load_report(...))`).
+- `.github/actions/gnome-e2e/action.yml` — the `Summarise results` step, which
+  prints `E2E INCOMPLETE` and the truncation note when `complete` is `False`.
+- `.github/workflows/e2e.yml` — the `Write job summary` step.
+- `Justfile` — the `results` recipe (marks a truncated suite ⚠️ `INCOMPLETE`) and
+  the `compare-results` recipe (`scenario_statuses(load_report(...)[0])`).
 - `scripts/e2e_summary.py` `main()` — the CLI reads
   `load_report(args.results_json.read_text())`.
 

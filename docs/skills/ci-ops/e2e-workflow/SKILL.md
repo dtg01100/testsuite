@@ -181,7 +181,7 @@ Note that `scripts/` as a whole is **not** checked out — only the two named fi
 list in the same change** — extracting an inline heredoc, adding a guard step, or
 reusing a repo script elsewhere. Verify by reading the job's `sparse-checkout` block
 and confirming the exact path is listed; never assume `scripts/` is present because
-another script runs.
+another script runs. Why this fails silently: [troubleshooting.md](references/troubleshooting.md#a-script-missing-from-the-sparse-checkout-fails-silently).
 
 The same rule applies to every other non-cone checkout in this repo, including the
 `projectbluefin/iso` harness checkout in `.github/workflows/iso-validation.yml`.
