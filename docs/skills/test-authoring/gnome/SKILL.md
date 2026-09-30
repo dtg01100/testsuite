@@ -125,7 +125,6 @@ probe in `environment.py` — a probe that cannot run skips rather than fails; r
 over SSH with the session-env prefix above.
 
 ## GNOME Shell extensions and AT-SPI health in smoke
-
 Use the public `org.gnome.Shell.Extensions.GetExtensionInfo` D-Bus method to
 assert an extension is enabled (`state` `1`). If the scenario promises visible
 product behavior, enabled state is only the first diagnostic and must not
@@ -133,6 +132,7 @@ replace a rendering assertion. For Dash-to-Dock v106, recursively traverse the
 public Clutter actor tree for its source-defined `dashtodockContainer` name and
 require the actor to be mapped, visible, allocated, opaque, and slid open. Do
 not inspect the extension's private `stateObj` or `dockManager` object graph.
+See `tests/extensions/README.md` for Hive suite contracts (Context7: `/behave/behave`, `/websites/gjs_guide`).
 
 When querying installed or enabled extensions in container mode, `gnome-extensions`
 CLI may block if the desktop Settings portal times out; fall back to calling
