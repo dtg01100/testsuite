@@ -97,3 +97,15 @@ def test_main_exit_codes(tmp_path: Path) -> None:
     assert main([str(good)]) == 0
     assert main([str(empty)]) == 1
     assert main([str(tmp_path / "nope.json")]) == 1
+
+
+@pytest.mark.parametrize("payload", ['{"features": []}', '"done"', "42", "null"])
+def test_non_list_results_file_fails_gate_with_report(
+    tmp_path: Path, payload: str
+) -> None:
+    results = tmp_path / "results.json"
+    results.write_text(payload, encoding="utf-8")
+    report = gate_report(results)
+    assert report["passed"] is False
+    assert "malformed" in report["reason"]
+    assert main([str(results)]) == 1

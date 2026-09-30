@@ -4,7 +4,7 @@ description: "Deep dive: GNOME OS guest lane for the developer extension-validat
 metadata:
   type: reference
   audience: agents
-  maturity: stable
+  maturity: draft
 ---
 # GNOME OS Extension-Validation Lane (#908)
 

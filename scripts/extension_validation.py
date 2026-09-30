@@ -34,10 +34,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scripts.e2e_summary import count_scenarios
-
-#: behave status bucket for ``error`` / ``hook_error`` and any future status.
-_OTHER = "other"
+from scripts.e2e_summary import OTHER_STATUS, count_scenarios
 
 
 def is_extension_validation_pass(counts: dict[str, int]) -> bool:
@@ -61,15 +58,16 @@ def is_extension_validation_pass(counts: dict[str, int]) -> bool:
         and counts.get("failed", 0) == 0
         and counts.get("undefined", 0) == 0
         and counts.get("untested", 0) == 0
-        and counts.get(_OTHER, 0) == 0
+        and counts.get(OTHER_STATUS, 0) == 0
     )
 
 def gate_report(results_json: Path) -> dict[str, Any]:
     """Evaluate the gate for a ``results.json`` and return a readable report.
 
-    Returns ``{"passed": bool, "counts": {...}, "reason": str}``. A missing or
-    unreadable results file fails the gate (``passed: False``) — a missing-result
-    or failed-boot run cannot pass the mandatory service gate.
+    Returns ``{"passed": bool, "counts": {...}, "reason": str}``. A missing,
+    unreadable, or malformed results file fails the gate (``passed: False``) —
+    a missing-result or failed-boot run cannot pass the mandatory service gate,
+    and it must still report that verdict as JSON rather than traceback.
     """
     if not results_json.is_file():
         return {
@@ -84,6 +82,17 @@ def gate_report(results_json: Path) -> dict[str, Any]:
             "passed": False,
             "counts": {},
             "reason": f"unreadable results file {results_json}: {exc}",
+        }
+    if not isinstance(report, list) or not all(
+        isinstance(feature, dict) for feature in report
+    ):
+        return {
+            "passed": False,
+            "counts": {},
+            "reason": (
+                f"malformed results file {results_json}: expected a JSON list of "
+                f"feature objects, got {type(report).__name__}"
+            ),
         }
     counts = count_scenarios(report)
     passed = is_extension_validation_pass(counts)

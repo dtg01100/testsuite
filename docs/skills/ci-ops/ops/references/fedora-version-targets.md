@@ -51,10 +51,14 @@ sha256:57eeef917d057e37d8d5824fab195ebf3b0ad49fc1ca191b7bc02b82418ed981
 ```
 
 Sibling tags for reference only (not pinned for the lane): `gnomeos-51`,
-`gnomeos-50`, `gnomeos-latest`. If the nightly digest changes, re-derive it with
-`podman manifest inspect quay.io/gnome_infrastructure/gnome-build-meta:gnomeos-nightly
+`gnomeos-50`, `gnomeos-latest`. If the nightly digest changes, re-derive it with:
 
-See ``docs/skills/ci-ops/e2e-workflow/references/gnome-extensions-validation.md``
+```bash
+skopeo inspect docker://quay.io/gnome_infrastructure/gnome-build-meta:gnomeos-nightly \
+  | jq -r '.Digest'
+```
+
+See `docs/skills/ci-ops/e2e-workflow/references/gnome-extensions-validation.md`
 for the guest inventory, the repeatable boot+load+run commands, and the mandatory
 service gate that fails closed for empty / all-skipped / undefined / hook-error /
 failed-boot / missing-result runs.
