@@ -1,0 +1,108 @@
+#!/usr/bin/env python3
+"""Mandatory gate for the GNOME developer extension-validation service.
+
+The service boots an official GNOME OS guest, loads the four gnome-extensions-hive
+extensions, and runs a qecore/Behave input+AT-SPI scenario. This module decides
+whether that run is a genuine pass.
+
+The gate is deliberately stricter than the general e2e headline
+(``scripts/e2e_summary.is_success``).  ``is_success`` scores an all-skipped or
+empty run green because whole suites legitimately ship only ``@future`` /
+``@quarantine`` scenarios.  An extension-validation run proves nothing unless at
+least one scenario genuinely passed and nothing errored, so this gate requires
+``passed > 0`` and rejects empty, all-skipped, undefined, untested, and
+error/hook-error runs (issue #908 acceptance criteria).
+
+See ``docs/skills/ci-ops/e2e-workflow/references/gnome-extensions-validation.md``
+for the guest-lane provisioning, inventory, and repeatable commands.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+from typing import Any
+
+from scripts.e2e_summary import count_scenarios
+
+#: behave status bucket for ``error`` / ``hook_error`` and any future status.
+_OTHER = "other"
+
+
+def is_extension_validation_pass(counts: dict[str, int]) -> bool:
+    """Return True only when at least one scenario passed and nothing errored.
+
+    Fails closed for every run type the extension-validation service must never
+    mistake for success (issue #908 acceptance):
+
+    * **empty** — no scenarios at all (``passed == 0``)
+    * **all-skipped** — every scenario skipped, none passed (``passed == 0``)
+    * **undefined / untested** — steps were not implemented
+    * **hook-error / failed-boot / error** — any ``error`` or ``hook_error``
+      scenario lands in the ``other`` bucket and fails the gate
+
+    ``skipped`` is allowed alongside a real pass: ``@future`` / image-incompatible
+    scenarios are legitimately not run.  This is intentionally stricter than
+    ``e2e_summary.is_success``, which scores an all-skipped or empty run green.
+    """
+    return (
+        counts.get("passed", 0) > 0
+        and counts.get("failed", 0) == 0
+        and counts.get("undefined", 0) == 0
+        and counts.get("untested", 0) == 0
+        and counts.get(_OTHER, 0) == 0
+    )
+
+def gate_report(results_json: Path) -> dict[str, Any]:
+    """Evaluate the gate for a ``results.json`` and return a readable report.
+
+    Returns ``{"passed": bool, "counts": {...}, "reason": str}``. A missing or
+    unreadable results file fails the gate (``passed: False``) — a missing-result
+    or failed-boot run cannot pass the mandatory service gate.
+    """
+    if not results_json.is_file():
+        return {
+            "passed": False,
+            "counts": {},
+            "reason": f"missing results file: {results_json}",
+        }
+    try:
+        report = json.loads(results_json.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        return {
+            "passed": False,
+            "counts": {},
+            "reason": f"unreadable results file {results_json}: {exc}",
+        }
+    counts = count_scenarios(report)
+    passed = is_extension_validation_pass(counts)
+    if passed:
+        reason = ""
+    elif counts.get("passed", 0) == 0:
+        reason = "no scenario passed (empty / all-skipped run)"
+    else:
+        reason = "failed / undefined / untested / errored scenarios present"
+    return {"passed": passed, "counts": counts, "reason": reason}
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Gate a single results.json; exit 0 on pass, 1 otherwise.
+
+    Invoked by the extension-validation service as::
+
+        python3 scripts/extension_validation.py results/results.json
+
+    The exit code is the gate verdict; the JSON report on stdout is for logs.
+    """
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "results_json", type=Path, help="path to behave results.json"
+    )
+    args = parser.parse_args(argv)
+    report = gate_report(args.results_json)
+    print(json.dumps(report))
+    return 0 if report["passed"] else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
