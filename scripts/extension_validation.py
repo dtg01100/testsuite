@@ -20,8 +20,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any
+
+# Support both `python3 -m scripts.extension_validation` and
+# `python3 scripts/extension_validation.py`. When run as a plain script,
+# sys.path[0] is the scripts/ directory (not the repo root), so
+# `from scripts.e2e_summary import ...` raises ModuleNotFoundError. Add the
+# repo root (matching the ROOT convention in the other scripts/*.py) so the
+# sibling package import resolves either way.
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from scripts.e2e_summary import count_scenarios
 
