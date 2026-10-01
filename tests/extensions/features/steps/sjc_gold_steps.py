@@ -6,8 +6,12 @@ not mocked here; successful HTTPS responses belong to the fixture lane (#909).
 """
 
 import json
+import shutil
+from pathlib import Path
 
-from behave import then, when
+from behave import given, step, then, when
+
+from tests.shared.extension_session import installed_path
 
 
 _SJC_ACTORS = """
@@ -122,3 +126,100 @@ def sjc_card_has_monitor_position(context, left, top):
 @then("no SJC Gold desktop card remains in the Shell actor tree")
 def sjc_card_was_removed(context):
     _wait_for_sjc(context, "return cards.length === 0;")
+
+
+_SJC_MISSING_CURL_CFFI_STUB = """#!/usr/bin/env python3
+# Test fixture: reproduce the source's documented ImportError branch for
+# the missing curl_cffi dependency. Mirrors the real handler at
+# sjc_price.py:18-30 — same JSON shape and exit code, so the JS sees the
+# exact same response as a stock guest without curl_cffi installed.
+import json
+import sys
+
+print(json.dumps(
+    {
+        "error": (
+            "Chưa cài curl_cffi. Chạy: python3 -m pip install --upgrade curl_cffi"
+        ),
+        "buy": None,
+        "sell": None,
+    },
+    ensure_ascii=False,
+))
+sys.exit(1)
+"""
+
+
+def _restore_sjc_helper(stub_path, backup_path):
+    if backup_path is not None and Path(backup_path).exists():
+        shutil.move(str(backup_path), str(stub_path))
+
+
+def _sjc_install_helper_stub(context):
+    info = context.extension.command(["gnome-extensions", "info", context.extension.uuid]).stdout
+    package_path = installed_path(info)
+    helper = package_path / "sjc_price.py"
+    if not helper.exists():
+        raise AssertionError(f"SJC Gold helper missing in installed package: {helper}")
+    backup = helper.with_name(helper.name + ".test-backup")
+    if backup.exists():
+        raise AssertionError(f"Previous SJC helper backup leaked: {backup}")
+    shutil.move(str(helper), str(backup))
+    helper.write_text(_SJC_MISSING_CURL_CFFI_STUB, encoding="utf-8")
+    helper.chmod(0o755)
+    context.extension_cleanups.append((_restore_sjc_helper, (helper, backup)))
+
+
+@given("the SJC Gold Python helper is replaced with a missing curl_cffi stub")
+def sjc_helper_replaced_with_missing_dependency(context):
+    _sjc_install_helper_stub(context)
+
+
+_SJC_ERROR_TEXT_PROBE = """
+    const cardRendered = card !== null && rendered(card);
+    const errorLabel = card ? descendants(card).find(a => hasClass(a, 'sjc-error-text')) : null;
+    const errorVisible = !!errorLabel && rendered(errorLabel) && errorLabel.visible !== false;
+    const errorText = errorLabel ? errorLabel.text : '';
+    return {cardRendered, errorVisible, errorText};
+"""
+
+
+@then("the SJC Gold card renders the actionable missing-curl_cffi error text")
+def sjc_card_renders_dependency_error(context):
+    expected = "Chưa cài curl_cffi. Chạy: python3 -m pip install --upgrade curl_cffi"
+    context.extension.wait_for(
+        f"(() => {{ {_SJC_ACTORS} const probe = (function () {{ const cardRendered = card !== null && rendered(card); const errorLabel = card ? descendants(card).find(a => hasClass(a, 'sjc-error-text')) : null; const errorVisible = !!errorLabel && rendered(errorLabel) && errorLabel.visible !== false; const errorText = errorLabel ? errorLabel.text : ''; return {{cardRendered, errorVisible, errorText}}; }})(); return probe.cardRendered && probe.errorVisible && probe.errorText.includes({json.dumps(expected)}); }})()",
+        timeout=20,
+    )
+
+
+def _guest_owned_processes(context):
+    """Return PIDs whose /proc/PID/cmdline contains the candidate helper.
+
+    The disposable guest is the only place fault injection runs, so a host
+    pgrep cannot accidentally match unrelated python processes.
+    """
+    cmd = (
+        "python3 -c 'import os, sys; "
+        "pids = [int(p) for p in os.listdir(\"/proc\") if p.isdigit()]; "
+        "owned = []; "
+        "needle = sys.argv[1]; "
+        "for pid in pids: "
+        "try: "
+        "cmdline = open(f\"/proc/{pid}/cmdline\", \"rb\").read().replace(b\"\\\\x00\", b\" \").decode(\"utf-8\", \"replace\"); "
+        "if needle in cmdline: owned.append((pid, cmdline.strip())) "
+        "except Exception: pass "
+        "print(\"\\n\".join(f\"{pid} {cmdline}\" for pid, cmdline in owned))' "
+        f"{json.dumps('sjc_price.py')}"
+    )
+    result = context.extension.command(cmd.split(), check=False)
+    return [line for line in result.stdout.splitlines() if line.strip()]
+
+
+@step("no SJC Gold helper or python child process remains for the candidate")
+def sjc_no_owned_processes(context):
+    owned = _guest_owned_processes(context)
+    assert not owned, (
+        "Test-owned helper or python process must not survive scenario teardown: "
+        + "\n".join(owned)
+    )

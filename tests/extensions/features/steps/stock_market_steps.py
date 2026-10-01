@@ -1,8 +1,12 @@
 """Observe Stock Market's rendered actors through the guest-local Shell bridge."""
 
 import json
+import shutil
+from pathlib import Path
 
-from behave import given, then, when
+from behave import given, step, then, when
+
+from tests.shared.extension_session import installed_path
 
 
 # Source: stock-market-binhnguyensoft.com at
@@ -121,3 +125,68 @@ def stock_market_position_observed(context, left, top):
         return [x - monitor.x, y - monitor.y];
     })"""
     context.extension.wait_for(_observe(result), expected=[[left, top]])
+
+
+_STOCK_NONZERO_EXIT_STUB = """#!/usr/bin/env python3
+# Test fixture: simulate a Python/helper nonzero-exit path. The real source
+# hardcodes /usr/bin/curl, so a PATH stub cannot replace it; this replaces
+# the helper itself with a stub that exits non-zero so the SafeCommandRunner
+# surfaces the real "Tiến trình lấy giá thất bại" path.
+import sys
+
+sys.exit(1)
+"""
+
+
+def _restore_stock_helper(stub_path, backup_path):
+    if backup_path is not None and Path(backup_path).exists():
+        shutil.move(str(backup_path), str(stub_path))
+
+
+def _stock_install_helper_stub(context):
+    info = context.extension.command(["gnome-extensions", "info", context.extension.uuid]).stdout
+    package_path = installed_path(info)
+    helper = package_path / "stocks_fetch.py"
+    if not helper.exists():
+        raise AssertionError(f"Stock Market helper missing in installed package: {helper}")
+    backup = helper.with_name(helper.name + ".test-backup")
+    if backup.exists():
+        raise AssertionError(f"Previous Stock Market helper backup leaked: {backup}")
+    shutil.move(str(helper), str(backup))
+    helper.write_text(_STOCK_NONZERO_EXIT_STUB, encoding="utf-8")
+    helper.chmod(0o755)
+    context.extension_cleanups.append((_restore_stock_helper, (helper, backup)))
+
+
+@given("the Stock Market Python helper is replaced with a nonzero-exit stub")
+def stock_helper_replaced_with_nonzero_stub(context):
+    _stock_install_helper_stub(context)
+
+
+def _stock_guest_owned_processes(context, needle):
+    cmd = (
+        "python3 -c 'import os, sys; "
+        "pids = [int(p) for p in os.listdir(\"/proc\") if p.isdigit()]; "
+        "owned = []; "
+        "needle = sys.argv[1]; "
+        "for pid in pids: "
+        "try: "
+        "cmdline = open(f\"/proc/{pid}/cmdline\", \"rb\").read().replace(b\"\\\\x00\", b\" \").decode(\"utf-8\", \"replace\"); "
+        "if needle in cmdline: owned.append((pid, cmdline.strip())) "
+        "except Exception: pass "
+        "print(\"\\n\".join(f\"{pid} {cmdline}\" for pid, cmdline in owned))' "
+        f"{json.dumps(needle)}"
+    )
+    result = context.extension.command(cmd.split(), check=False)
+    return [line for line in result.stdout.splitlines() if line.strip()]
+
+
+@step("no Stock Market helper or curl child process remains for the candidate")
+def stock_no_owned_processes(context):
+    owned = []
+    for needle in ("stocks_fetch.py", "/usr/bin/curl"):
+        owned.extend(_stock_guest_owned_processes(context, needle))
+    assert not owned, (
+        "Test-owned helper or curl process must not survive scenario teardown: "
+        + "\n".join(owned)
+    )
