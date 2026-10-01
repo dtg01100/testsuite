@@ -149,7 +149,7 @@ def convert_behave_json(behave_json_path, *, run_id, caller_repo, slug, suite, t
     }
 
 def main():
-    if len(sys.argv) < 7:
+    if len(sys.argv) < 8:
         print("Usage: convert_behave.py <behave_json> <run_id> <caller_repo> <slug> <suite> <timestamp> <output_dir>")
         sys.exit(1)
 

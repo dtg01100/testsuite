@@ -59,6 +59,7 @@ Run unit tests with `python3 -m pytest tests/unit/ -q`. The `pytest` CI check (`
 | `test_timing.py` | SLA tag thresholds and timing helpers |
 | `test_screenshot.py` | Screenshot capture helpers |
 | `test_shared.py` | Shared step utilities |
+| `test_convert_behave_cli.py` | Behave converter CLI argument-count boundary, usage diagnostics, and successful output |
 | `test_screenshot_cli.py` | `screenshot_cli.main()` argument parsing and dispatch |
 | `test_security_steps.py` | `_cosign_entries()` JSON validation and `_collect_values()` recursive extraction |
 | `test_quarantine.py` | `@quarantine` / `@pending` / `@future` skip logic |

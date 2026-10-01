@@ -102,6 +102,16 @@ This skill guides agents through modifying, compiling, and deploying the QA dash
 | "The CNAME to qa.projectbluefin.io must be preserved on every deploy." | qa.projectbluefin.io is a redirect, not this site's domain. Writing CNAME claims a name that 301s away and 404s. Never write CNAME — serve from https://projectbluefin.github.io/testsuite/ via base: '/testsuite/'. |
 | "A dependency bump PR is green, so the dashboard still builds." | `publish-to-pages.yml` never runs on pull requests. Green PR checks say nothing about `npm ci`; run it locally before merging any `dashboard/` dependency change. |
 
+## Behave converter CLI
+
+`dashboard/scripts/convert_behave.py` takes seven operands: the input JSON,
+run ID, caller repository, slug, suite, timestamp, and output directory.
+That means eight `sys.argv` entries including the script name. With fewer
+operands it prints usage and exits 1 before reading input or creating output.
+`tests/unit/test_convert_behave_cli.py` covers zero through six operands and
+successful conversion with all seven; the six-operand case catches an
+otherwise easy-to-miss off-by-one in the guard.
+
 ## Coverage badges: `scripts/generate_badges.py`
 
 The shields.io coverage badges are generated at publish time by parsing
