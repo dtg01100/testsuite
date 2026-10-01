@@ -1707,8 +1707,10 @@ jobs:
             python3 - << 'PY'
           import json, os
           import subprocess, json as _json
-          from scripts.e2e_summary import count_scenarios, summary_icon
-          data    = json.load(open('results/results.json'))
+          from scripts.e2e_summary import count_scenarios, load_report, summary_icon
+          # load_report salvages a results.json truncated by a mid-run crash;
+          # complete=False marks such a run INCOMPLETE rather than green.
+          data, complete = load_report(open('results/results.json').read())
           counts  = count_scenarios(data)
           passed  = counts['passed']
           failed  = counts['failed']
@@ -1721,9 +1723,18 @@ jobs:
           # ✅ only when every scenario passed or was intentionally skipped;
           # ❌ on any failure; ⚠️ for undefined/untested/errored runs.
           icon    = summary_icon(counts)
+          if not complete and icon == '✅':
+            icon = '⚠️'
 
           lines = [
             f'## {icon} E2E Results ({suite})', '',
+          ]
+          if not complete:
+            lines += [
+              '**⚠️ INCOMPLETE (results truncated):** `results.json` was cut off by a '
+              'mid-run crash; counts cover only the features that finished.', '',
+            ]
+          lines += [
             '| Result | Count |', '|--------|-------|',
             f'| ✅ Passed  | {passed} |',
             f'| ❌ Failed  | {failed} |',

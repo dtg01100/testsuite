@@ -430,6 +430,7 @@ runs:
             count_scenarios = e2e_summary.count_scenarios
             is_success      = e2e_summary.is_success
             summary_icon    = e2e_summary.summary_icon
+            load_report     = e2e_summary.load_report
         except Exception as exc:
             # Fail closed rather than render a headline we cannot justify, and
             # catch broadly on purpose: exec_module runs the module's top level,
@@ -452,7 +453,13 @@ runs:
                     )
             sys.exit(0)
 
-        data = json.loads(results_file.read_text())
+        # load_report tolerates a results.json left truncated by a mid-run
+        # crash (behave writes the closing ']' only in close()): it salvages
+        # the complete feature objects instead of raising and failing the job.
+        # `complete` is False for a salvaged file, and such a run is never
+        # PASSED: the feature that was running when the lane died is the one
+        # the salvage drops.
+        data, complete = load_report(results_file.read_text())
 
         counts = count_scenarios(data)
         passed = counts["passed"]
@@ -489,11 +496,12 @@ runs:
                     pass
 
         # ── Compact summary in CI log ──────────────────────────────────────
-        # PASSED only when is_success holds: an undefined-only, untested-only or
-        # errored run is INCOMPLETE, never PASSED (failed == 0 is not enough).
+        # PASSED only when is_success holds on a complete results.json: an
+        # undefined-only, untested-only, errored, empty or truncated run is
+        # INCOMPLETE, never PASSED (failed == 0 is not enough).
         if failed:
             status_word = "FAILED"
-        elif is_success(counts):
+        elif complete and is_success(counts):
             status_word = "PASSED"
         else:
             status_word = "INCOMPLETE"
@@ -506,6 +514,12 @@ runs:
             f"(total {total})",
             flush=True,
         )
+        if not complete:
+            print(
+                "WARNING: results.json was truncated (the lane crashed mid-run); "
+                "counts cover only the features that finished.",
+                flush=True,
+            )
 
         if failures:
             print("\nFailed scenarios:", flush=True)
@@ -532,7 +546,16 @@ runs:
         # ✅ only on a clean run, ❌ on any failure, ⚠️ for undefined/untested/
         # errored scenarios — the same rule as the CI-log headline above.
         icon  = summary_icon(counts)
+        if not complete and icon == "✅":
+            icon = "⚠️"
         lines = [f"## {icon} E2E Results — `{suite}`", ""]
+        if not complete:
+            lines += [
+                "**⚠️ INCOMPLETE (results truncated):** `results.json` was cut "
+                "off by a mid-run crash; counts cover only the features that "
+                "finished.",
+                "",
+            ]
         lines += [
             "| ✅ Passed | ❌ Failed | ⏭️ Skipped | ⚠️ Undefined | ⚪ Untested | 🛑 Error/other | Total |",
             "|----------|----------|-----------|-------------|-----------|---------------|-------|",
