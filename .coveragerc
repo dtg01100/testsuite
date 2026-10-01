@@ -1,6 +1,6 @@
 [run]
 parallel = True
-source = tests,scripts
+source = tests,scripts,dashboard/scripts
 patch = subprocess
 
 [report]
