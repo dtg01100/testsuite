@@ -46,6 +46,17 @@ def _is_dakota_image(image: str) -> bool:
     return "dakota" in name
 
 
+def _is_projectbluefin_image(image: str) -> bool:
+    """Return True if the image reference is published under the projectbluefin org.
+
+    Matches the org path segment only (e.g. "projectbluefin" in
+    "ghcr.io/projectbluefin/bluefin-lts@sha256:..."), so Classic under
+    ghcr.io/ublue-os, a bare image name and an empty ref all return False.
+    """
+    parts = image.lower().split("/")
+    return len(parts) >= 2 and parts[-2] == "projectbluefin"
+
+
 def _scenario_tags(scenario) -> set[str]:
     return set(getattr(scenario, "effective_tags", scenario.tags))
 
@@ -93,13 +104,53 @@ def _has_toggle_action(context) -> bool:
     return context.has_toggle_action
 
 
+def _has_custom_command_list(context) -> bool:
+    """Return True when the effective enabled-extensions lists custom-command-list.
+
+    projectbluefin/common replaced Logo Menu with ``custom-command-list``
+    (``zz0-bluefin-modifications.gschema.override`` + the distro dconf default
+    in ``04-bluefin-custom-command-menu``). Images that build on an older
+    common layer, e.g. ``ghcr.io/ublue-os/bluefin`` (Classic), still ship
+    Logo Menu and carry no custom-command-list dconf keys, so the scenarios
+    asserting that swap fail there for a product reason rather than a defect.
+    Probe the image's effective ``enabled-extensions`` value (``gsettings
+    get``, which a user override can change): scenarios tagged
+    ``@requires_custom_command_list`` skip until the image ships the
+    contract, then activate automatically. A failing ``gsettings`` (missing
+    schema, broken dconf/D-Bus, no binary) is a defect rather than a product
+    gap, so it does not skip — the scenarios run and report it. Images under
+    ``ghcr.io/projectbluefin/*`` own the contract, so ``before_scenario`` never
+    consults this probe for them: dropping the extension there fails loudly.
+    An unknown image ref falls back to the probe.
+    """
+    cached = getattr(context, "has_custom_command_list", None)
+    if cached is not None:
+        return cached
+    stdout, returncode = run_ssh(context, "gsettings get org.gnome.shell enabled-extensions")
+    if returncode != 0:
+        context.has_custom_command_list = True
+    else:
+        context.has_custom_command_list = (
+            "custom-command-list@storageb.github.com" in (stdout or "")
+        )
+    return context.has_custom_command_list
+
+
 def before_all(context):
     userdata = context.config.userdata
     # When IMAGE env var is set (GHA runner), auto-detect image family so
     # @bluefin scenarios can be skipped gracefully on non-Bluefin images.
-    image_ref = os.environ.get("IMAGE", userdata.get("image", ""))
+    # Prefer BASE_IMAGE: on composed runs IMAGE is the derived
+    # ghcr.io/<owner>/testsuite-e2e:run-<id> ref, which carries neither the
+    # family nor the org of the image under test (#907).
+    image_ref = (
+        os.environ.get("BASE_IMAGE")
+        or os.environ.get("IMAGE")
+        or userdata.get("image", "")
+    )
     context.is_bluefin_image = _is_bluefin_image(image_ref) if image_ref else True
     context.is_dakota_image = _is_dakota_image(image_ref) if image_ref else False
+    context.is_projectbluefin_image = _is_projectbluefin_image(image_ref)
     context.vm_ip = _first_value(
         userdata.get("vm_ip", ""),
         userdata.get("host", ""),
@@ -190,6 +241,13 @@ def before_scenario(context, scenario):
         return
     if "requires_toggle_action" in scenario_tags and not _has_toggle_action(context):
         scenario.skip("ujust toggle-updates ACTION support not present on this image")
+        return
+    if (
+        "requires_custom_command_list" in scenario_tags
+        and not getattr(context, "is_projectbluefin_image", False)
+        and not _has_custom_command_list(context)
+    ):
+        scenario.skip("custom-command-list extension not enabled on this image")
         return
     feature_name = getattr(getattr(scenario, "feature", None), "name", "")
     if _is_container_target(context):

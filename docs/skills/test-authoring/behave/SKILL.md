@@ -146,6 +146,9 @@ Two recipes are worked out in detail in
 (`projectbluefin/testsuite#499`), while `toggle-devmode` still has none and is
 deliberately uncovered (`projectbluefin/testsuite#500`).
 
+Image-content contracts use the same gate: `@requires_custom_command_list` skips
+the Logo Menu swap scenarios on images predating it (Classic). Never add `@pending`.
+
 ### uupd conditional suppression coverage
 
 Do not simulate uupd's battery or metered-network suppression in testsuite
