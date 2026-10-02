@@ -322,15 +322,18 @@ def _clone_state(context, application):
         const original = global.get_window_actors().find(actor =>
             actor.get_meta_window()?.get_stable_sequence() === sequence);
         if (!original) return null;
-        // The overview draws a real clone through Shell.Clone into the
-        // overviewGroup. Match the cloned actor, not the original.
+        // The overview draws a real clone through Clutter.Clone (the parent
+        // of WindowPreview) into the overviewGroup. WindowPreview exposes
+        // metaWindow as a JS property, not a getter, and Clutter.Clone has
+        // no metaWindow access at all, so a get_meta_window() walk on
+        // children of overviewGroup never matches the clone. The reliable
+        // signal is Clutter.Clone.source === original.
         const visited = new Set();
         const clones = [];
         const collect = actor => {{
             if (visited.has(actor)) return;
             visited.add(actor);
-            if (actor.get_meta_window?.()?.get_stable_sequence() === sequence &&
-                    actor !== original) {{
+            if (actor !== original && actor.source === original) {{
                 clones.push(actor);
                 return;
             }}
@@ -428,20 +431,24 @@ def capture_clone_screenshot(context, application):
 @then("no overview group retains clone actors for {application} or {other_application}")
 def assert_overview_clones_removed(context, application, other_application):
     # After overview is hidden, the overview group must not retain leftover
-    # clone actors for either window. Originals live in window_group.
+    # clone actors for either window. Originals live in window_group, so we
+    # only need to scan overviewGroup; clone identity is Clutter.Clone.source
+    # (Clutter.Clone has no metaWindow accessor of its own).
     sequences = [
         context.shade_windows[application]["sequence"],
         context.shade_windows[other_application]["sequence"],
     ]
     context.extension.wait_for(f"""(() => {{
-        const targets = {json.dumps(sequences)};
+        const targets = new Set({json.dumps(sequences)});
+        const originals = global.get_window_actors().filter(actor => {{
+            const seq = actor.get_meta_window?.()?.get_stable_sequence();
+            return seq !== undefined && targets.has(seq);
+        }});
         const visited = new Set();
         const findClones = actor => {{
             if (visited.has(actor)) return false;
             visited.add(actor);
-            if (actor.get_meta_window?.() &&
-                targets.includes(actor.get_meta_window().get_stable_sequence()) &&
-                actor.get_parent?.() === Main.layoutManager.overviewGroup)
+            if (originals.some(original => actor !== original && actor.source === original))
                 return true;
             return (actor.get_children?.() ?? []).some(findClones);
         }};
