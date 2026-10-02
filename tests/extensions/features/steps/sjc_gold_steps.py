@@ -197,22 +197,31 @@ def _guest_owned_processes(context):
     """Return PIDs whose /proc/PID/cmdline contains the candidate helper.
 
     The disposable guest is the only place fault injection runs, so a host
-    pgrep cannot accidentally match unrelated python processes.
+    pgrep cannot accidentally match unrelated python processes. The
+    walker is a single Python script invoked via ``python3 -c``; argv form
+    is required because ``ExtensionSession.command`` runs ``subprocess.run``
+    without a shell, so any unescaped quoting inside the script becomes a
+    literal byte the interpreter sees and rejects with ``SyntaxError`` --
+    in which case the empty stdout (and ``check=False``) silently
+    produced ``[]`` and the assertion below passed vacuously.
     """
-    cmd = (
-        "python3 -c 'import os, sys; "
-        "pids = [int(p) for p in os.listdir(\"/proc\") if p.isdigit()]; "
-        "owned = []; "
-        "needle = sys.argv[1]; "
-        "for pid in pids: "
-        "try: "
-        "cmdline = open(f\"/proc/{pid}/cmdline\", \"rb\").read().replace(b\"\\\\x00\", b\" \").decode(\"utf-8\", \"replace\"); "
-        "if needle in cmdline: owned.append((pid, cmdline.strip())) "
-        "except Exception: pass "
-        "print(\"\\n\".join(f\"{pid} {cmdline}\" for pid, cmdline in owned))' "
-        f"{json.dumps('sjc_price.py')}"
+    script = (
+        "import os, sys\n"
+        "needle = sys.argv[1]\n"
+        "pids = [int(p) for p in os.listdir('/proc') if p.isdigit()]\n"
+        "owned = []\n"
+        "for pid in pids:\n"
+        "    try:\n"
+        "        cmdline = open(f'/proc/{pid}/cmdline', 'rb').read().replace(b'\\\\x00', b' ').decode('utf-8', 'replace')\n"
+        "        if needle in cmdline:\n"
+        "            owned.append((pid, cmdline.strip()))\n"
+        "    except Exception:\n"
+        "        pass\n"
+        "print('\\n'.join(f'{pid} {cmdline}' for pid, cmdline in owned))\n"
     )
-    result = context.extension.command(cmd.split(), check=False)
+    result = context.extension.command(
+        ["python3", "-c", script, "sjc_price.py"], check=False
+    )
     return [line for line in result.stdout.splitlines() if line.strip()]
 
 
