@@ -32,6 +32,34 @@ The corollary applies to the paths filter too: a `push`-on-`main` trigger scoped
 `dashboard/**` does not fire when the break comes from a lockfile or config file
 outside that path.
 
+## Workflows must list themselves in their paths filter
+
+A paths filter that scopes a workflow to `container/Containerfile.runner` does not
+fire when the change is to `.github/workflows/build-runner.yml` itself — the workflow
+that owns the build step. The same blind spot applies to `pull_request.paths`: an
+editing-only PR (for example, a docker-action SHA bump) merges fully green because
+no build job ever ran. Mirror the file under `.github/workflows/` so edits to the
+workflow itself are build-validated, the same way the artifact source is:
+
+```yaml
+on:
+  push:
+    branches: [main]
+    paths:
+      - container/Containerfile.runner
+      - .github/workflows/build-runner.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - container/Containerfile.runner
+      - .github/workflows/build-runner.yml
+```
+
+`build-kde-runner.yml` already does this; `build-runner.yml` did not (filed as
+`#939`). Check both lists every time you touch `.github/workflows/**` — the
+asymmetry between a workflow's inputs and its own path is the easiest of these
+gaps to ship.
+
 ## Triage: find the first failing run, not the newest merge
 
 A schedule-only workflow can be red for many consecutive runs before it is noticed, so
