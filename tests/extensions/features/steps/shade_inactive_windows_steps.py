@@ -341,7 +341,27 @@ def _clone_state(context, application):
                 collect(child);
         }};
         collect(Main.layoutManager.overviewGroup);
-        const clone = clones.length === 1 ? clones[0] : null;
+        // `overviewGroup` may carry more than one Clutter.Clone of the same
+        // original: a WindowPreview clone and a workspace-thumbnail WindowClone.
+        // The thumbnail is parented under Shell.WorkspaceThumbnail.__Workspace
+        // (a child of the thumbnailBox); the WindowPreview clone sits under a
+        // WindowPreview container directly in overviewGroup. Pick the clone
+        // nearest to WindowPreview so the assertion is stable across workspace
+        // layouts (#919 review).
+        let clone = null;
+        let clonePreviewDepth = -1;
+        for (const candidate of clones) {{
+            let depth = 0;
+            let node = candidate;
+            while (node && !(node instanceof Shell.WindowPreview)) {{
+                node = node.get_parent?.();
+                depth++;
+            }}
+            if (node && depth > clonePreviewDepth) {{
+                clone = candidate;
+                clonePreviewDepth = depth;
+            }}
+        }}
         // The original-window effect is what the source's vfunc_paint
         // inspects: PreviewSafeBrightnessEffect skips brightness when
         // actor.is_in_clone_paint() is true, so the clone paints with the
@@ -403,12 +423,14 @@ def assert_clone_skips_shade(context, application):
         "vfunc_paint branch in clone paint mode must skip brightness, not "
         "detach the effect, otherwise a regression would dim the clone content"
     )
-    assert state["cloneInClonePaint"] is True, (
-        "Clone actor must be inside the clone-paint pass when observed; the "
-        "vfunc_paint branch only skips brightness while Clutter.Actor."
-        "is_in_clone_paint() is true, so a false reading here means the "
-        "helper bypass is exercised at the wrong point in the paint pipeline"
-    )
+    # `cloneInClonePaint` is not asserted here: Clutter.Actor.is_in_clone_paint()
+    # is only true *during* a paint pass and only on the source actor (the
+    # original window), so observing it through Shell.Eval from a test step
+    # would always read false. The clone-paint bypass is what makes
+    # `cloneEffectPresent is False` the right invariant for the scenario;
+    # the in-paint assertion is exercised by the extension's own journal
+    # entry on the dimmed-content code path (#919 review).
+    _ = state.get("cloneInClonePaint")
 
 
 @then('a screenshot records the "{application}" clone un-shaded in the overview')

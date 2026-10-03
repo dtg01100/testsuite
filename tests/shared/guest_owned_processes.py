@@ -18,14 +18,23 @@ passed vacuously. Pinning that contract is what the regression tests in
 
 # The literal Python source the walker runs in the guest. Kept as a module
 # constant so the unit tests can compile it without going through ``subprocess``.
+#
+# Skip the walker itself (``os.getpid()``): the walker's own argv contains
+# ``needle`` as ``argv[3]``, so ``/proc/<self>/cmdline`` always matches and the
+# "no owned processes" assertion would never pass on a live guest
+# (regression-test pinned by ``tests/unit/test_guest_owned_processes_walker.py``).
 WALKER_SCRIPT = (
     "import os, sys\n"
     "needle = sys.argv[1]\n"
-    "pids = [int(p) for p in os.listdir('/proc') if p.isdigit()]\n"
+    "self_pid = os.getpid()\n"
+    "pids = [int(p) for p in os.listdir('/proc') if p.isdigit() and int(p) != self_pid]\n"
     "owned = []\n"
     "for pid in pids:\n"
     "    try:\n"
-    "        cmdline = open(f'/proc/{pid}/cmdline', 'rb').read().replace(b'\\\\x00', b' ').decode('utf-8', 'replace')\n"
+        # NUL separators are the canonical /proc/<pid>/cmdline form. The
+        # literal b'\\x00' in source would arrive as the 4-byte text \x00,
+        # not a NUL byte, so use bytes([0]) for an unambiguous match.
+    "        cmdline = open(f'/proc/{pid}/cmdline', 'rb').read().replace(bytes([0]), b' ').decode('utf-8', 'replace')\n"
     "        if needle in cmdline:\n"
     "            owned.append((pid, cmdline.strip()))\n"
     "    except Exception:\n"
