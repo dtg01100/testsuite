@@ -64,7 +64,7 @@ Feature: Stock Market desktop watchlist
       | style_class  | text              |
       | stocks-title | FINANCIAL MARKETS |
 
-Scenario: Disable removes the card and reenable restores exactly one card
+  Scenario: Disable removes the card and reenable restores exactly one card
     Given the Stock Market watchlist is empty
     And the Stock Market language setting is "vi"
     When I enable the selected Hive extension
