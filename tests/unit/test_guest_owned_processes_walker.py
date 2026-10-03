@@ -1,12 +1,11 @@
-"""Regression for the guest owned-process walker in sjc_gold / stock_market steps.
+"""Regression for the guest owned-process walker shared by the SJC and stock steps.
 
-The walker is the python ``-c`` payload ``_guest_owned_processes`` /
-``_stock_guest_owned_processes`` invoke. Issue #919 originally passed the
-script through ``cmd.split()`` to ``ExtensionSession.command``,
-which runs ``subprocess.run(argv, ...)`` without a shell. The single
-quotes inside the script became literal bytes the interpreter saw and
-rejected with ``SyntaxError: unterminated string literal``; with
-``check=False`` the empty stdout produced ``[]`` and the assertion
+The walker is the python ``-c`` payload ``tests.shared.guest_owned_processes.guest_owned_processes``
+invokes. Issue #919 originally passed the script through ``cmd.split()`` to
+``ExtensionSession.command``, which runs ``subprocess.run(argv, ...)`` without
+a shell. The single quotes inside the script became literal bytes the
+interpreter saw and rejected with ``SyntaxError: unterminated string literal``;
+with ``check=False`` the empty stdout produced ``[]`` and the assertion
 silently passed -- a vacuous guard that could not catch a leaked helper.
 
 The fix sends the script as a single argv element and lets the guest's
@@ -27,7 +26,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from tests.extensions.features.steps import sjc_gold_steps, stock_market_steps
+from tests.shared import guest_owned_processes
 
 
 def _argv_for(command_mock):
@@ -37,17 +36,8 @@ def _argv_for(command_mock):
     return args[0]
 
 
-@pytest.mark.parametrize(
-    "walker, needle, expected_count",
-    [
-        (sjc_gold_steps._guest_owned_processes, "sjc_price.py", 4),
-        (stock_market_steps._stock_guest_owned_processes, "stocks_fetch.py", 4),
-        (stock_market_steps._stock_guest_owned_processes, "/usr/bin/curl", 4),
-    ],
-)
-def test_walker_passes_a_python_invocation_with_three_positional_args(
-    walker, needle, expected_count
-):
+@pytest.mark.parametrize("needle", ["sjc_price.py", "/usr/bin/curl"])
+def test_walker_passes_a_python_invocation_with_four_positional_args(needle):
     """The script must reach ``python3`` as a single argv element, not as a
     shell tokenised string. ``subprocess.run`` without ``shell=True`` would
     otherwise feed every whitespace-separated byte to ``python3 -c`` and
@@ -58,10 +48,7 @@ def test_walker_passes_a_python_invocation_with_three_positional_args(
     context.extension.command = Mock(
         return_value=_subprocess.CompletedProcess([], 0, "", "")
     )
-    if walker is stock_market_steps._stock_guest_owned_processes:
-        walker(context, needle)
-    else:
-        walker(context)
+    guest_owned_processes.guest_owned_processes(context, needle)
     argv = _argv_for(context.extension.command)
     assert argv[0] == "python3"
     assert argv[1] == "-c"
@@ -69,31 +56,42 @@ def test_walker_passes_a_python_invocation_with_three_positional_args(
         "the script must be a non-empty single argv element"
     )
     assert argv[3] == needle
-    assert len(argv) == expected_count
+    assert len(argv) == 4
 
 
-def test_sjc_walker_script_is_valid_python():
-    """The literal script the step embeds must parse as Python; if a future
-    refactor reintroduces a syntax error the walker would always return
-    ``[]`` (the assertion it backs would silently pass).
+def test_walker_script_is_valid_python():
+    """The literal script the shared walker embeds must parse as Python; if a
+    future refactor reintroduces a syntax error the walker would always
+    return ``[]`` (the assertion it backs would silently pass).
     """
+    compile(guest_owned_processes.WALKER_SCRIPT, "<guest-walker-script>", "exec")
+
+
+def test_assert_no_guest_owned_processes_collects_every_needle():
+    """Every needle must produce its own ``python3 -c`` invocation; the
+    assertion must walk them all before failing so a leaked curl subprocess
+    cannot hide behind a missing helper scan.
+    """
+    context = Mock()
+    context.extension.command = Mock(
+        side_effect=[
+            _subprocess.CompletedProcess([], 0, "", ""),
+            _subprocess.CompletedProcess([], 0, "1 curl\n", ""),
+        ]
+    )
+    with pytest.raises(AssertionError, match="curl"):
+        guest_owned_processes.assert_no_guest_owned_processes(
+            context, ("stocks_fetch.py", "/usr/bin/curl")
+        )
+    assert context.extension.command.call_count == 2
+
+
+def test_assert_no_guest_owned_processes_passes_when_empty():
     context = Mock()
     context.extension.command = Mock(
         return_value=_subprocess.CompletedProcess([], 0, "", "")
     )
-    sjc_gold_steps._guest_owned_processes(context)
-    argv = _argv_for(context.extension.command)
-    compile(argv[2], "<sjc-walker-script>", "exec")
-
-
-def test_stock_walker_script_is_valid_python():
-    """The literal script ``_stock_guest_owned_processes`` embeds must parse
-    as Python. Same vacuous-pass concern as the sjc walker.
-    """
-    context = Mock()
-    context.extension.command = Mock(
-        return_value=_subprocess.CompletedProcess([], 0, "", "")
+    guest_owned_processes.assert_no_guest_owned_processes(
+        context, ("sjc_price.py",)
     )
-    stock_market_steps._stock_guest_owned_processes(context, "stocks_fetch.py")
-    argv = _argv_for(context.extension.command)
-    compile(argv[2], "<stock-walker-script>", "exec")
+    context.extension.command.assert_called_once()

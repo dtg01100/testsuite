@@ -62,7 +62,11 @@ The owned-process check walks `/proc/<pid>/cmdline` from inside the guest and
 matches the helper name (`sjc_price.py`, `stocks_fetch.py`) or `/usr/bin/curl`.
 A broad host `pgrep` cannot distinguish a leaked subprocess from unrelated
 guest processes, so the assertion stays inside the guest and identifies
-ownership by cmdline.
+ownership by cmdline. The walker lives in `tests/shared/guest_owned_processes.py`
+so both scenarios reuse a single script body and so the regression tests in
+`tests/unit/test_guest_owned_processes_walker.py` can compile the literal
+script and pin the argv contract that prevents the vacuous-pass regression
+from issue #919.
 
 Development checks do not require a guest:
 

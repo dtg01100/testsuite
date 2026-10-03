@@ -403,6 +403,12 @@ def assert_clone_skips_shade(context, application):
         "vfunc_paint branch in clone paint mode must skip brightness, not "
         "detach the effect, otherwise a regression would dim the clone content"
     )
+    assert state["cloneInClonePaint"] is True, (
+        "Clone actor must be inside the clone-paint pass when observed; the "
+        "vfunc_paint branch only skips brightness while Clutter.Actor."
+        "is_in_clone_paint() is true, so a false reading here means the "
+        "helper bypass is exercised at the wrong point in the paint pipeline"
+    )
 
 
 @then('a screenshot records the "{application}" clone un-shaded in the overview')

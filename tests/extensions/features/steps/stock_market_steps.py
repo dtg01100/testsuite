@@ -7,6 +7,9 @@ from pathlib import Path
 from behave import given, step, then, when
 
 from tests.shared.extension_session import installed_path
+from tests.shared.guest_owned_processes import (
+    assert_no_guest_owned_processes,
+)
 
 
 # Source: stock-market-binhnguyensoft.com at
@@ -163,41 +166,8 @@ def stock_helper_replaced_with_nonzero_stub(context):
     _stock_install_helper_stub(context)
 
 
-def _stock_guest_owned_processes(context, needle):
-    """Return PIDs whose /proc/PID/cmdline contains the candidate helper or curl.
-
-    The walker is a single Python script invoked via ``python3 -c``; argv
-    form is required because ``ExtensionSession.command`` runs
-    ``subprocess.run`` without a shell, so any unescaped quoting inside
-    the script becomes a literal byte the interpreter sees and rejects
-    with ``SyntaxError`` -- in which case the empty stdout (and
-    ``check=False``) silently produced ``[]`` and the assertion below
-    passed vacuously.
-    """
-    script = (
-        "import os, sys\n"
-        "needle = sys.argv[1]\n"
-        "pids = [int(p) for p in os.listdir('/proc') if p.isdigit()]\n"
-        "owned = []\n"
-        "for pid in pids:\n"
-        "    try:\n"
-        "        cmdline = open(f'/proc/{pid}/cmdline', 'rb').read().replace(b'\\\\x00', b' ').decode('utf-8', 'replace')\n"
-        "        if needle in cmdline:\n"
-        "            owned.append((pid, cmdline.strip()))\n"
-        "    except Exception:\n"
-        "        pass\n"
-        "print('\\n'.join(f'{pid} {cmdline}' for pid, cmdline in owned))\n"
-    )
-    result = context.extension.command(["python3", "-c", script, needle], check=False)
-    return [line for line in result.stdout.splitlines() if line.strip()]
-
-
 @step("no Stock Market helper or curl child process remains for the candidate")
 def stock_no_owned_processes(context):
-    owned = []
-    for needle in ("stocks_fetch.py", "/usr/bin/curl"):
-        owned.extend(_stock_guest_owned_processes(context, needle))
-    assert not owned, (
-        "Test-owned helper or curl process must not survive scenario teardown: "
-        + "\n".join(owned)
+    assert_no_guest_owned_processes(
+        context, ("stocks_fetch.py", "/usr/bin/curl")
     )

@@ -12,6 +12,9 @@ from pathlib import Path
 from behave import given, step, then, when
 
 from tests.shared.extension_session import installed_path
+from tests.shared.guest_owned_processes import (
+    assert_no_guest_owned_processes,
+)
 
 
 _SJC_ACTORS = """
@@ -188,47 +191,14 @@ _SJC_ERROR_TEXT_PROBE = """
 def sjc_card_renders_dependency_error(context):
     expected = "Chưa cài curl_cffi. Chạy: python3 -m pip install --upgrade curl_cffi"
     context.extension.wait_for(
-        f"(() => {{ {_SJC_ACTORS} const probe = (function () {{ const cardRendered = card !== null && rendered(card); const errorLabel = card ? descendants(card).find(a => hasClass(a, 'sjc-error-text')) : null; const errorVisible = !!errorLabel && rendered(errorLabel) && errorLabel.visible !== false; const errorText = errorLabel ? errorLabel.text : ''; return {{cardRendered, errorVisible, errorText}}; }})(); return probe.cardRendered && probe.errorVisible && probe.errorText.includes({json.dumps(expected)}); }})()",
+        "(() => { " + _SJC_ACTORS
+        + " const probe = (function () {" + _SJC_ERROR_TEXT_PROBE + "})();"
+        + " return probe.cardRendered && probe.errorVisible &&"
+        + " probe.errorText.includes(" + json.dumps(expected) + "); })()",
         timeout=20,
     )
 
 
-def _guest_owned_processes(context):
-    """Return PIDs whose /proc/PID/cmdline contains the candidate helper.
-
-    The disposable guest is the only place fault injection runs, so a host
-    pgrep cannot accidentally match unrelated python processes. The
-    walker is a single Python script invoked via ``python3 -c``; argv form
-    is required because ``ExtensionSession.command`` runs ``subprocess.run``
-    without a shell, so any unescaped quoting inside the script becomes a
-    literal byte the interpreter sees and rejects with ``SyntaxError`` --
-    in which case the empty stdout (and ``check=False``) silently
-    produced ``[]`` and the assertion below passed vacuously.
-    """
-    script = (
-        "import os, sys\n"
-        "needle = sys.argv[1]\n"
-        "pids = [int(p) for p in os.listdir('/proc') if p.isdigit()]\n"
-        "owned = []\n"
-        "for pid in pids:\n"
-        "    try:\n"
-        "        cmdline = open(f'/proc/{pid}/cmdline', 'rb').read().replace(b'\\\\x00', b' ').decode('utf-8', 'replace')\n"
-        "        if needle in cmdline:\n"
-        "            owned.append((pid, cmdline.strip()))\n"
-        "    except Exception:\n"
-        "        pass\n"
-        "print('\\n'.join(f'{pid} {cmdline}' for pid, cmdline in owned))\n"
-    )
-    result = context.extension.command(
-        ["python3", "-c", script, "sjc_price.py"], check=False
-    )
-    return [line for line in result.stdout.splitlines() if line.strip()]
-
-
 @step("no SJC Gold helper or python child process remains for the candidate")
 def sjc_no_owned_processes(context):
-    owned = _guest_owned_processes(context)
-    assert not owned, (
-        "Test-owned helper or python process must not survive scenario teardown: "
-        + "\n".join(owned)
-    )
+    assert_no_guest_owned_processes(context, ("sjc_price.py",))
