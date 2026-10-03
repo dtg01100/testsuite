@@ -95,3 +95,36 @@ def test_assert_no_guest_owned_processes_passes_when_empty():
         context, ("sjc_price.py",)
     )
     context.extension.command.assert_called_once()
+
+
+def test_walker_command_runs_with_check_true():
+    """A non-zero exit from ``python3 -c`` (missing python3, syntax error,
+    I/O error reading /proc) must surface as a real failure rather than
+    masquerading as "no owned processes" via an empty stdout. ``check=False``
+    used to swallow the return code; ``check=True`` does not, so the
+    ``ExtensionSession.command`` call must pass ``check=True``.
+    """
+    context = Mock()
+    context.extension.command = Mock(
+        return_value=_subprocess.CompletedProcess([], 0, "", "")
+    )
+    guest_owned_processes.guest_owned_processes(context, "sjc_price.py")
+    _args, kwargs = context.extension.command.call_args
+    assert kwargs.get("check") is True, (
+        "the walker must run with check=True so a failed guest probe "
+        "cannot look like an empty result"
+    )
+
+
+def test_walker_propagates_a_failed_guest_probe():
+    """When ``python3`` is missing in the guest or the script raises, the
+    walker subprocess returns non-zero and the ``check=True`` call surfaces
+    the ``CalledProcessError`` so the owning step fails fast instead of
+    passing vacuously with ``[]``.
+    """
+    context = Mock()
+    err = _subprocess.CalledProcessError(2, ["python3", "-c"])
+    context.extension.command = Mock(side_effect=err)
+    with pytest.raises(_subprocess.CalledProcessError):
+        guest_owned_processes.guest_owned_processes(context, "sjc_price.py")
+

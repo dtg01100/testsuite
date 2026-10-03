@@ -47,11 +47,15 @@ def guest_owned_processes(context, needle):
     """Return ``"pid cmdline"`` lines whose cmdline contains ``needle``.
 
     Runs the walker inside the guest via the existing ``ExtensionSession.command``
-    bridge with ``check=False`` so an absent walker process emits no spurious
-    failures -- an empty stdout is the legitimate "nothing found" signal.
+    bridge with ``check=True`` so a missing ``python3`` or a script-level
+    failure surfaces as a real test failure: the empty stdout that ``check=False``
+    used to swallow would otherwise produce ``[]`` and let
+    ``assert_no_guest_owned_processes`` pass vacuously. The walker's stdout is
+    the legitimate "nothing found" signal on a successful run; a non-zero
+    return is not.
     """
     result = context.extension.command(
-        ["python3", "-c", WALKER_SCRIPT, needle], check=False
+        ["python3", "-c", WALKER_SCRIPT, needle], check=True
     )
     return [line for line in result.stdout.splitlines() if line.strip()]
 
