@@ -54,7 +54,7 @@ the scenario ends, even on failure. The SJC stub prints the same JSON error
 the source emits when `from curl_cffi import requests` raises
 `ImportError`, so the JS sees the actionable text without the test installing
 curl_cffi. The Stock Market stub exits with status 1, exercising the
-`Tiến trình lảy giá thất bại` branch in `SafeCommandRunner`. A PATH stub is
+`Tiến trình lấy giá thất bại` branch in `SafeCommandRunner`. A PATH stub is
 not equivalent: the Stock helper hardcodes `/usr/bin/curl` and the assertion
 must trigger the real nonzero-exit path.
 

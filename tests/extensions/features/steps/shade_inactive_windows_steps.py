@@ -428,7 +428,7 @@ def capture_clone_screenshot(context, application):
     print(f"Screenshot saved: {path}", flush=True)
 
 
-@then("no overview group retains clone actors for {application} or {other_application}")
+@then('no overview group retains clone actors for "{application}" or "{other_application}"')
 def assert_overview_clones_removed(context, application, other_application):
     # After overview is hidden, the overview group must not retain leftover
     # clone actors for either window. Originals live in window_group, so we
