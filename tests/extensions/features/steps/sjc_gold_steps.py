@@ -52,8 +52,11 @@ def _sjc_expression(body):
     return "(() => {" + _SJC_ACTORS + body + "})()"
 
 
-def _wait_for_sjc(context, body):
-    context.extension.wait_for(_sjc_expression(body))
+def _wait_for_sjc(context, body, *, timeout: int | None = None) -> None:
+    if timeout is None:
+        context.extension.wait_for(_sjc_expression(body))
+    else:
+        context.extension.wait_for(_sjc_expression(body), timeout=timeout)
 
 
 @when('I set the SJC Gold "{key}" preference to {value:d}')
@@ -190,13 +193,17 @@ _SJC_ERROR_TEXT_PROBE = """
 @then("the SJC Gold card renders the actionable missing-curl_cffi error text")
 def sjc_card_renders_dependency_error(context):
     expected = "Chưa cài curl_cffi. Chạy: python3 -m pip install --upgrade curl_cffi"
-    context.extension.wait_for(
-        "(() => { " + _SJC_ACTORS
-        + " const probe = (function () {" + _SJC_ERROR_TEXT_PROBE + "})();"
-        + " return probe.cardRendered && probe.errorVisible &&"
-        + " probe.errorText.includes(" + json.dumps(expected) + "); })()",
-        timeout=20,
+    # Arrow-function block (not expression body) — the probe ends in
+    # `return {…}` and is several statements, matching the original
+    # `function () { … }()` IIFE exactly. _SJC_ERROR_TEXT_PROBE already
+    # ends with `return {…};`, so nothing else needs to move into the
+    # constant.
+    body = (
+        " const probe = (() => { " + _SJC_ERROR_TEXT_PROBE + " })();"
+        " return probe.cardRendered && probe.errorVisible &&"
+        " probe.errorText.includes(" + json.dumps(expected) + ");"
     )
+    _wait_for_sjc(context, body, timeout=20)
 
 
 @step("no SJC Gold helper or python child process remains for the candidate")
